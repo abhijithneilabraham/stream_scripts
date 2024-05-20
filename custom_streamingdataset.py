@@ -10,6 +10,10 @@ from composer.optim import DecoupledAdamW, LinearWithWarmupScheduler
 from composer.metrics.nlp import LanguageCrossEntropy, MaskedAccuracy
 from composer.utils import reproducibility
 
+# Set up Minio configuration as S3
+os.environ['AWS_ACCESS_KEY_ID'] = 'minioadmin'
+os.environ['AWS_SECRET_ACCESS_KEY'] = 'minioadmin'
+os.environ['S3_ENDPOINT_URL'] = 'http://localhost:9000'
 
 # Setup S3 filesystem client with s3fs
 fs = s3fs.S3FileSystem(
@@ -25,7 +29,7 @@ eval_object_name = 'parquet_data/test-00000-of-00001.parquet'
 text_column_name = 'text'
 
 class StreamingDataset(IterableDataset):
-    def __init__(self, s3_path):
+    def __init__(self, s3_path, batch_size=64):
         self.fs = s3fs.S3FileSystem(
             key=os.environ['AWS_ACCESS_KEY_ID'],
             secret=os.environ['AWS_SECRET_ACCESS_KEY'],
@@ -34,6 +38,7 @@ class StreamingDataset(IterableDataset):
         )
         self.parquet_file = pq.ParquetFile(s3_path, filesystem=self.fs)
         self.num_rows = self.parquet_file.metadata.num_rows
+        self.batch_size = batch_size  # Set the batch size
 
     def __iter__(self):
         return self.read_batches()
@@ -43,11 +48,12 @@ class StreamingDataset(IterableDataset):
         return self.num_rows
 
     def read_batches(self):
-        batch_iterator = self.parquet_file.iter_batches()
+        batch_iterator = self.parquet_file.iter_batches(batch_size=self.batch_size)
         for batch in batch_iterator:
             df = batch.to_pandas()
             for i in range(len(df)):
                 yield {text_column_name: df.iloc[i][text_column_name]}
+
 
 # Initialize transformers models and tokenizer
 reproducibility.seed_all(17)
@@ -55,8 +61,10 @@ config = AutoConfig.from_pretrained('google/electra-small-discriminator')
 model = AutoModelForMaskedLM.from_config(config)
 tokenizer = AutoTokenizer.from_pretrained('google/electra-small-discriminator')
 
-train_dataset = StreamingDataset(f's3://{bucket_name}/{train_object_name}')
-eval_dataset = StreamingDataset(f's3://{bucket_name}/{eval_object_name}')
+train_dataset = StreamingDataset(f's3://{bucket_name}/{train_object_name}',
+                                 batch_size=32)
+eval_dataset = StreamingDataset(f's3://{bucket_name}/{eval_object_name}',
+                                batch_size=32)
 
 class CustomCollator:
     def __init__(self, tokenizer, mlm_probability=0.15):
