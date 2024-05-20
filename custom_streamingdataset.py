@@ -10,10 +10,7 @@ from composer.optim import DecoupledAdamW, LinearWithWarmupScheduler
 from composer.metrics.nlp import LanguageCrossEntropy, MaskedAccuracy
 from composer.utils import reproducibility
 
-# Set up Minio configuration as S3
-os.environ['AWS_ACCESS_KEY_ID'] = 'minioadmin'
-os.environ['AWS_SECRET_ACCESS_KEY'] = 'minioadmin'
-os.environ['S3_ENDPOINT_URL'] = 'http://localhost:9000'
+
 
 # Setup S3 filesystem client with s3fs
 fs = s3fs.S3FileSystem(
